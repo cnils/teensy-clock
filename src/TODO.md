@@ -2,7 +2,6 @@
 
 - [ ] Add color correction function
 - [ ] Add more clocks and use more logical names
-- [ ] Fix push button issue
 
 # COMPLETE (v2 -> v3)
 
