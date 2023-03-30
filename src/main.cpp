@@ -11,6 +11,7 @@
 #define COLOR_ORDER                 BGR
 
 // realtime clock setup
+#define QUERIES_PER_SECOND          4  // number of times the RTC is queried per second
 RTC_DS3231 rtc;
 
 // button setup
@@ -24,29 +25,23 @@ CRGB leds[NUM_LEDS];
 
 // animation parameters - fixed global definitions
 #define BRIGHTNESS                  128  // 96
-#define FRAMES_PER_SECOND           10  // note: lower framerates (even 120) fail to capture fast moving LED patterns
+#define FRAMES_PER_SECOND           500  // note: lower framerates (even 120) fail to capture fast moving LED patterns
 
 // program parameters
-bool state_change = true; // state change checker for events
-int hour_counter = 0; // hour count for clock change - 5 or 7 hours will cover clock uniformly
-int clock_index = random( 3 ); // index for clock "switch"
+uint8_t clock_index = 0;
 
 // time parameters
 int upload_time;
-int h;
-int m;
-int s;
-int dst = 0;  // DST offset
+uint8_t h;
+uint8_t m;
+uint8_t s;
+int8_t dst = 0;  // DST offset
 
 
 ///////////////////
 // Serial Output //
 ///////////////////
-void serial_print( int state_change, int hour_counter, int clock_index, int h, int m, int s, int dst ) {
-  Serial.print( state_change );
-  Serial.print( " " );
-  Serial.print( hour_counter );
-  Serial.print( " " );
+void serial_print( uint8_t clock_index, uint8_t h, uint8_t m, uint8_t s, int8_t dst ) {
   Serial.print( clock_index );
   Serial.print( " " );
   Serial.print( h );
@@ -64,27 +59,21 @@ void serial_print( int state_change, int hour_counter, int clock_index, int h, i
 // Clocks //
 ////////////
 // Clock - Basic troubleshooter
-void clock( int h, int m, int s ) {
+void clock( uint8_t h, uint8_t m, uint8_t s ) {
   // clear LEDs
   FastLED.clear();
 
-  //for( int j = 0; j <= m; j++ ) {
-  //  leds[j % NUM_LEDS] = CRGB( 0, 200, 0 ); // fill minute line
-  //}
+  // fill LEDs
   leds[5 * (h % 12) + 5 * m / 60] = CRGB( 0, 0, 200 ); // fill hour tick
   leds[m] = CRGB( 0, 200, 0 ); // fill minute tick
-  //for( int j = 0; j < 12; j++ ) {
-  //  leds[j * 5] += CHSV( 0, 0, 255 ); // stamp hour ticks (+ brightness if value already filled)
-  //}
-  //leds[s] = CRGB( 200, 0, 0 ); // second ticker
 }
 
 // Clock 2 - Eric's input
-void clock2( int h, int m, int s ) {
+void clock2( uint8_t h, uint8_t m, uint8_t s ) {
   // clear LEDs
   FastLED.clear();
 
-  int tail = 20;
+  uint8_t tail = 20;
   for( int j = tail; j >= 0; j-- ) {
     leds[(m - j + NUM_LEDS) % NUM_LEDS] = CHSV( 104, (tail - j) * 255 / tail, (tail - j) * 140 / tail ); // fill minute line
   }
@@ -104,11 +93,11 @@ void clock2( int h, int m, int s ) {
 }
 
 // Clock 2a - Tail ticks
-void clock2a( int h, int m, int s ) {
+void clock2a( uint8_t h, uint8_t m, uint8_t s ) {
   // clear LEDs
   FastLED.clear();
 
-  int tail = 20;
+  uint8_t tail = 20;
   for( int j = 2; j >= 0; j-- ){
     leds[(j + (5 * (h % 12) + 5 * m / 60) - 1 + NUM_LEDS) % NUM_LEDS] += CHSV( 160, 255, 255 ); // fill hour fat tick
   }
@@ -128,7 +117,7 @@ void clock2a( int h, int m, int s ) {
 }
 
 // Clock 2b - Simple
-void clock2b( int h, int m, int s ) {
+void clock2b( uint8_t h, uint8_t m, uint8_t s ) {
   // clear LEDs
   FastLED.clear();
 
@@ -151,7 +140,7 @@ void clock2b( int h, int m, int s ) {
 }
 
 // Clock 2c - Simple Tick Illum
-void clock2c( int h, int m, int s ) {
+void clock2c( uint8_t h, uint8_t m, uint8_t s ) {
   // clear LEDs
   FastLED.clear();
 
@@ -174,13 +163,13 @@ void clock2c( int h, int m, int s ) {
 }
 
 // Clock 3 - Ziiro inspired
-void clock3( int h, int m, int s ) {
+void clock3( uint8_t h, uint8_t m, uint8_t s ) {
   // clear LEDs
   FastLED.clear();
 
-  int h_tail = 30;
-  int m_tail = 20;
-  int s_tail = 10;
+  uint8_t h_tail = 30;
+  uint8_t m_tail = 20;
+  uint8_t s_tail = 10;
   for( int j = h_tail; j >= 0; j-- ){
     leds[((5 * (h % 12) + 5 * m / 60) - j + NUM_LEDS) % NUM_LEDS] += CHSV( 160, (h_tail - j) * 255 / h_tail, (h_tail - j) * 140 / h_tail ); // hour line
   }
@@ -199,7 +188,7 @@ void clock3( int h, int m, int s ) {
 }
 
 // Clock 4 - Tone Dr Study
-void clock4( int h, int m, int s ) {
+void clock4( uint8_t h, uint8_t m, uint8_t s ) {
   // clear LEDs
   FastLED.clear();
 
@@ -214,29 +203,6 @@ void clock4( int h, int m, int s ) {
   }
 }
 
-// Dumb Clock - no DS1307
-void dumb_clock() {
-  // clear LEDs
-  FastLED.clear();
-
-  int s = 23580; // 43200 (Day)
-  int m = 0;
-  int h = 0;
-  while( 1 ) {
-    m = (s / 60 + 1) % 60; // convert seconds to minutes
-    h = (5 * (s / 60) / 60) % 60; // convert seconds to hours
-    for( int j = 0; j < m; j++ ) {
-      leds[j % NUM_LEDS] = CRGB( 0, 20, 0 ); // fill minute line
-    }
-    leds[h % NUM_LEDS] = CRGB( 0, 0, 20 ); // fill hour tick
-    for( int tick = 0; tick < 12; tick++ ) {
-      leds[tick * 5] += CRGB( 0, 0, 40 ); // stamp hour ticks (+ brightness if value already filled)
-    }
-    leds[s % NUM_LEDS] += CRGB( 20, 0, 0 ); // second ticker
-    s++;
-  }
-}
-
 
 ////////////////////
 // Light Patterns //
@@ -245,14 +211,14 @@ void dumb_clock() {
 int8_t hue;
 
 // all lights rainbow fade - moving along strip
-void rainbow_spin( int h ) {
+void rainbow_spin( uint8_t h ) {
   // clear LEDs
   FastLED.clear();
 
   // rainbow fill with offset
+  uint8_t interp = 255.0 / NUM_LEDS;  // interpolate LEDs to fill strip with rainbow
   for( int i = 0; i < NUM_LEDS; i++ ) {
-    uint8_t offset = (255.0 / NUM_LEDS) * i;
-    leds[i] = CHSV(hue + offset, 255, 90);
+    leds[i] = CHSV(hue + interp * i, 255, 90);
   }
 
   // update hue variable
@@ -265,14 +231,14 @@ void rainbow_spin( int h ) {
 }
 
 // all lights random - strobe
-void random_strobe( int h ) {
+void random_strobe( uint8_t h ) {
   // clear LEDs
   FastLED.clear();
 
-  int maxi = 6;
-  while( maxi > 0 ) {
-    leds[random(NUM_LEDS)] = CHSV( random(256), 255, 255 );
-    maxi--;
+  uint8_t n_strobes = 6;
+  while( n_strobes > 0 ) {
+    leds[random8() % NUM_LEDS] = CHSV( random8(), 255, 255 );
+    n_strobes--;
   }
   leds[5 * (h % 12)] = CHSV( 0, 0, 255 ); // added to show hour
 }
@@ -291,7 +257,19 @@ void error_lights() {
 /////////////////////
 // Clock Scheduler //
 /////////////////////
-void clock_scheduler( int clock_index, int h, int m, int s ) {
+// list of clocks to cycle through.  Each is defined as a separate function below.
+typedef void ( *ClockList[] )(uint8_t h, uint8_t m, uint8_t s);
+ClockList clock_patterns = { clock2a, clock2c, clock3 };
+// PatternList led_patterns = { single_snake };
+
+// cycling function(s)
+#define ARRAY_SIZE(A) ( sizeof(A) / sizeof( A[0] ) )
+void next_pattern() {
+  // add one to the current pattern number, and wrap around at the end
+  clock_index = ( clock_index + random8() ) % ARRAY_SIZE( clock_patterns );
+}
+
+void clock_scheduler( uint8_t clock_index, uint8_t h, uint8_t m, uint8_t s ) {
   if( h == 0 && m == 0 ) { // run "midnight rave" for one minute
     random_strobe( h );
   }
@@ -302,16 +280,12 @@ void clock_scheduler( int clock_index, int h, int m, int s ) {
     rainbow_spin( h );
   }
   else { // run through default sequence of clock programs (mod every 3x5 or 3x7 hours to completely cover clock)
-    switch( clock_index ) {
-      case 0 :
-        clock2c( h, m, s );
-        break;
-      case 1 :
-        clock2a( h, m, s );
-        break;
-      case 2 :
-        clock3( h, m, s );
-        break;
+    clock_patterns[clock_index]( h, m, s );
+    serial_print( clock_index, h, m, s, dst ); // debug printout -- state bool, hour count, clock switch, h:m:s, dst
+
+    // change clock pattern
+    EVERY_N_HOURS( 3 ) {
+      next_pattern();
     }
   }
 }
@@ -354,7 +328,7 @@ void loop () {
     
   // check button
   button.loop(); // MUST call the loop() function before any other button code
-  int count = button.getCount();
+  uint8_t count = button.getCount();
   if (count > 0) {
     // tick dst variable
     dst++;
@@ -372,8 +346,8 @@ void loop () {
     button.resetCount();
   }
 
-  // updates
-  EVERY_N_MILLISECONDS( 1000 / FRAMES_PER_SECOND ) {
+  // query time and update clocks
+  EVERY_N_MILLISECONDS( 1000 / QUERIES_PER_SECOND ) {
     // poll time
     DateTime now = rtc.now();  // Poll DS3231
     now = ( now.unixtime() + dst * 3600 );  // Add an hour if set
@@ -383,23 +357,12 @@ void loop () {
     m = now.minute();
     s = now.second();
 
-    // check for state changes
-    if( m == 0 && state_change ) { // update hour counter once only at the top of the hour
-      hour_counter++;
-      state_change = false;
-    }
-    else if( m == 59 ) { // reset state change variable before top of the hour
-      state_change = true;
-    }
-    else if( m == 0 && hour_counter == 4 ) {
-      clock_index = random( 3 );
-      hour_counter = 0;
-    }
-
-    // run main function(s)
+    // run clock scheduler
     clock_scheduler( clock_index, h, m, s ); // run clock scheduler
-    serial_print( state_change, hour_counter, clock_index, h, m, s, dst ); // debug printout -- state bool, hour count, clock switch, h:m:s, dst
-    
+  }
+
+  // update LEDs
+  EVERY_N_MILLISECONDS( 1000 / FRAMES_PER_SECOND ) {
     // show LEDs
     FastLED.show();  // send the 'leds' array out to the actual LED strip
   }
