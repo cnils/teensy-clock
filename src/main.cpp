@@ -28,28 +28,31 @@ CRGB leds[NUM_LEDS];
 #define FRAMES_PER_SECOND           500  // note: lower framerates (even 120) fail to capture fast moving LED patterns
 
 // program parameters
-uint8_t clock_index = 0;
+uint8_t clock_index;
+uint8_t clock_elapsed;
+uint8_t clock_duration = 5;  // number of hours before clock is cycled
+bool triggered;
 
 // time parameters
 int upload_time;
 uint8_t h;
 uint8_t m;
 uint8_t s;
-int8_t dst = 0;  // DST offset
+int8_t dst;  // DST offset
 
 
 ///////////////////
 // Serial Output //
 ///////////////////
-void serial_print( uint8_t clock_index, uint8_t h, uint8_t m, uint8_t s, int8_t dst ) {
-  Serial.print( clock_index );
-  Serial.print( " " );
+void serial_print( uint8_t h, uint8_t m, uint8_t s, uint8_t clock_index, int8_t dst ) {
   Serial.print( h );
   Serial.print( ":" );
   Serial.print( m );
   Serial.print( ":" );
   Serial.print( s );
-  Serial.print( " " );
+  Serial.print( ", clock index: " );
+  Serial.print(clock_index);
+  Serial.print( ", dst: " );
   Serial.print( dst );
   Serial.print( "\n" );
 }
@@ -269,7 +272,9 @@ void next_pattern() {
   clock_index = ( clock_index + random8() ) % ARRAY_SIZE( clock_patterns );
 }
 
-void clock_scheduler( uint8_t clock_index, uint8_t h, uint8_t m, uint8_t s ) {
+// scheduler function
+void clock_scheduler( uint8_t h, uint8_t m, uint8_t s, uint8_t clock_index ) {
+  // order matters for these...
   if( h == 0 && m == 0 ) { // run "midnight rave" for one minute
     random_strobe( h );
   }
@@ -278,15 +283,25 @@ void clock_scheduler( uint8_t clock_index, uint8_t h, uint8_t m, uint8_t s ) {
   }
   else if( m == 0 ) { // run "rainbow hour" on the hour for one minute
     rainbow_spin( h );
+    // code to run once per hour (top of the hour)
+    if( !triggered ) {
+      clock_elapsed = ( clock_elapsed + 1 ) % clock_duration;
+      // cycle clock
+      if( clock_elapsed == clock_duration - 1) {
+        next_pattern();
+      }
+      // set trigger
+      triggered = 1;
+    }
   }
   else { // run through default sequence of clock programs (mod every 3x5 or 3x7 hours to completely cover clock)
     clock_patterns[clock_index]( h, m, s );
-    serial_print( clock_index, h, m, s, dst ); // debug printout -- state bool, hour count, clock switch, h:m:s, dst
+    serial_print( h, m, s, clock_index, dst ); // debug printout -- state bool, hour count, clock switch, h:m:s, dst
+  }
 
-    // change clock pattern
-    EVERY_N_HOURS( 3 ) {
-      next_pattern();
-    }
+  // reset trigger once per hour (bottom of the hour)
+  if(m == 30) {
+    triggered = 0;
   }
 }
 
@@ -315,6 +330,9 @@ void setup () {
 
   // set master brightness control
   FastLED.setBrightness( BRIGHTNESS );
+
+  // Set seed for PRNG
+  srand( 42 );
 
   // set up DST pushbutton
   button.setDebounceTime( 30 ); // set debounce time to 30 milliseconds
@@ -358,7 +376,7 @@ void loop () {
     s = now.second();
 
     // run clock scheduler
-    clock_scheduler( clock_index, h, m, s ); // run clock scheduler
+    clock_scheduler( h, m, s, clock_index ); // run clock scheduler
   }
 
   // update LEDs
